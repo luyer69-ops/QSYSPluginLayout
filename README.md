@@ -17,11 +17,16 @@ All project data is stored locally in your browser. Nothing is sent to or stored
 - Auto-save to LocalStorage with visual save indicator
 - Toast notifications replacing browser `alert()` dialogs
 - Keyboard shortcuts dialog (press ⌨ Shortcuts in the toolbar)
+### Importing `.qplug` Files
+  Click **Import .qplug** in the toolbar and select a `.qplug` or `.lua` file. The importer performs static text parsing of:
+  
+  - `PluginInfo` → plugin metadata
+  - `GetControls` → control definitions
+  - `GetControlLayout` → positions, sizes, and visual properties
+  - `GetPins` → audio/serial pin definitions
 
 ## Running Locally
-
 No build step required. Open `layout.html` in a modern browser (Chrome 98+, Firefox 94+, Safari 15.4+).
-
 ```
 # Serve with any static file server, e.g.:
 npx serve .
@@ -65,15 +70,6 @@ QSYSLayoutEditor/
 │   └── modal-shortcuts.js   Keyboard shortcuts reference modal
 └── help/help.html        User documentation
 ```
-
-## Importing `.qplug` Files
-
-Click **Import .qplug** in the toolbar and select a `.qplug` or `.lua` file. The importer performs static text parsing of:
-
-- `PluginInfo` → plugin metadata
-- `GetControls` → control definitions
-- `GetControlLayout` → positions, sizes, and visual properties
-- `GetPins` → audio/serial pin definitions
 
 **Limitations of static import:**
 - Dynamic Lua expressions in position/size fields are not evaluated
