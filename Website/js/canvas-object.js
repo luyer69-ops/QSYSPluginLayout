@@ -70,6 +70,8 @@ function cleanupStyleElements(body, keepStyle) {
   if (keepStyle !== 'Button') {
     const gloss = body.querySelector('.gloss-overlay');
     if (gloss) gloss.remove();
+    const btnIcon = body.querySelector('.btn-icon');
+    if (btnIcon) btnIcon.remove();
   }
   if (keepStyle !== 'Fader') {
     const track = body.querySelector('.fader-track');
@@ -88,6 +90,10 @@ function cleanupStyleElements(body, keepStyle) {
   body.style.backgroundColor = '';
   body.style.color = '';
   body.style.borderRadius = '';
+  body.style.padding = '';
+  body.style.margin = '';
+  body.style.flexDirection = '';
+  body.style.gap = '';
 
   const label = body.querySelector('.object-label');
   if (label) {
@@ -147,6 +153,10 @@ function updateControlVisuals(el, body, obj) {
       applyCommonStyles(body, label, lp);
       break;
   }
+
+  // Padding/Margin preview
+  if (lp.Padding !== undefined) body.style.padding = lp.Padding + 'px';
+  if (lp.Margin !== undefined) body.style.margin = lp.Margin + 'px';
 }
 
 /* ── Knob: half-circle pie chart with value textbox ── */
@@ -311,6 +321,37 @@ function renderButton(body, label, lp, cd) {
   if (lp.FontSize) {
     label.style.fontSize = lp.FontSize + 'px';
   }
+
+  // Icon rendering
+  let iconEl = body.querySelector('.btn-icon');
+  if (lp.Icon) {
+    if (!iconEl) {
+      iconEl = document.createElement('img');
+      iconEl.className = 'btn-icon';
+      iconEl.style.cssText = 'max-width:80%;max-height:60%;object-fit:contain;display:block;pointer-events:none;';
+      body.insertBefore(iconEl, label);
+    }
+    const isBase64 = /^[A-Za-z0-9+/]/.test(lp.Icon) && lp.Icon.length > 32;
+    if (isBase64) {
+      const mime = (lp.IconType === 'Svg') ? 'image/svg+xml' : 'image/png';
+      iconEl.src = `data:${mime};base64,${lp.Icon}`;
+      iconEl.alt = '';
+    } else {
+      // Path-type icon: show a placeholder symbol
+      iconEl.src = 'data:image/svg+xml,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><text y="18" font-size="18" fill="#aaa">✦</text></svg>'
+      );
+      iconEl.alt = lp.Icon;
+    }
+    if (lp.Legend) {
+      body.style.flexDirection = 'column';
+      body.style.gap = '2px';
+    }
+  } else if (iconEl) {
+    iconEl.remove();
+    body.style.flexDirection = '';
+    body.style.gap = '';
+  }
 }
 
 function ensureGlossOverlay(body) {
@@ -337,6 +378,7 @@ function renderLed(body, label, lp, cd) {
       Math.round(c[2] * 0.49)
     ]);
   }
+  body.style.borderRadius = '50%';
   label.textContent = '';
 }
 
@@ -534,94 +576,116 @@ function renderGroupBox(body, label, gp) {
   const strokeColor = gp.StrokeColor ? colorToCSS(gp.StrokeColor) : '#000';
   const align = gp.HTextAlign || 'Center';
   const text = gp.Text || '';
+  const hasText = text.length > 0;
 
   const w = body.clientWidth || 200;
   const h = body.clientHeight || 120;
 
-  // Text element for display
+  // Text element — only shown when there is text
   let textEl = body.querySelector('.groupbox-text');
-  if (!textEl) {
-    textEl = document.createElement('span');
-    textEl.className = 'groupbox-text';
-    body.appendChild(textEl);
+  if (hasText) {
+    if (!textEl) {
+      textEl = document.createElement('span');
+      textEl.className = 'groupbox-text';
+      body.appendChild(textEl);
+    }
+    textEl.style.display = '';
+    textEl.textContent = text;
+    textEl.style.fontSize = fontSize + 'px';
+    textEl.style.fontWeight = gp.IsBold ? 'bold' : '';
+    textEl.style.color = textColor;
+    if (gp.Font) textEl.style.fontFamily = gp.Font;
+  } else if (textEl) {
+    // Hide the element so it takes no space and is not painted
+    textEl.style.display = 'none';
   }
-  textEl.textContent = text;
-  textEl.style.fontSize = fontSize + 'px';
-  textEl.style.fontWeight = gp.IsBold ? 'bold' : '';
-  textEl.style.color = textColor;
-  if (gp.Font) textEl.style.fontFamily = gp.Font;
 
-  // Measure text using offscreen canvas (reliable, synchronous)
-  const textW = measureText(text, fontSize, gp.Font, gp.IsBold);
-  const notchPadX = 4;
-  const notchPadY = 2;
-  const half = strokeW / 2;
-  const notchH = fontSize + notchPadY * 2 + strokeW;
-  const notchW = Math.ceil(textW) + notchPadX * 2;
-
-  // Notch X position based on alignment (always 8-corner concavity style)
-  let notchX;
-  if (align === 'Left') {
-    notchX = half + 6;
-  } else if (align === 'Right') {
-    notchX = w - half - notchW - 6;
-  } else {
-    notchX = (w - notchW) / 2;
-  }
-  notchX = Math.max(strokeW, Math.min(notchX, w - notchW - strokeW));
-
-  // Position text inside the notch
-  textEl.style.left = (notchX + notchPadX) + 'px';
-  textEl.style.top = (strokeW + notchPadY) + 'px';
-
-  // SVG
   const svgNS = 'http://www.w3.org/2000/svg';
   let svg = body.querySelector('.groupbox-svg');
   if (!svg) {
     svg = document.createElementNS(svgNS, 'svg');
     svg.setAttribute('class', 'groupbox-svg');
-    body.insertBefore(svg, textEl);
+    body.insertBefore(svg, textEl || null);
   }
   svg.setAttribute('width', w);
   svg.setAttribute('height', h);
   svg.style.width = w + 'px';
   svg.style.height = h + 'px';
 
-  const top = half;
-  const left = half;
-  const right = w - half;
-  const bottom = h - half;
-  const nx1 = notchX;
-  const nx2 = notchX + notchW;
-  const nb = notchH;
-
-  // Corner radius
+  const half = strokeW / 2;
+  const top = half, left = half, right = w - half, bottom = h - half;
   const cr = gp.CornerRadius || 0;
-  const maxR = Math.min((nx1 - left) / 2, (right - nx2) / 2, (bottom - nb) / 2, notchW / 2, notchH - strokeW);
-  const r = Math.max(0, Math.min(cr, maxR));
 
-  // 8-corner path: notch cuts DOWN from top edge as a concavity
   let d;
-  if (r > 0) {
-    d = `M ${left},${top + r}`
-      + ` A ${r},${r} 0 0 1 ${left + r},${top}`
-      + ` L ${nx1 - r},${top}`
-      + ` A ${r},${r} 0 0 1 ${nx1},${top + r}`
-      + ` L ${nx1},${nb - r}`
-      + ` A ${r},${r} 0 0 0 ${nx1 + r},${nb}`
-      + ` L ${nx2 - r},${nb}`
-      + ` A ${r},${r} 0 0 0 ${nx2},${nb - r}`
-      + ` L ${nx2},${top + r}`
-      + ` A ${r},${r} 0 0 1 ${nx2 + r},${top}`
-      + ` L ${right - r},${top}`
-      + ` A ${r},${r} 0 0 1 ${right},${top + r}`
-      + ` L ${right},${bottom - r}`
-      + ` A ${r},${r} 0 0 1 ${right - r},${bottom}`
-      + ` L ${left + r},${bottom}`
-      + ` A ${r},${r} 0 0 1 ${left},${bottom - r}`
-      + ` Z`;
+
+  if (!hasText) {
+    // Simple rectangle (with optional corner radius) — no notch
+    const r = Math.max(0, Math.min(cr, (right - left) / 2, (bottom - top) / 2));
+    if (r > 0) {
+      d = `M ${left + r},${top}`
+        + ` L ${right - r},${top}`
+        + ` A ${r},${r} 0 0 1 ${right},${top + r}`
+        + ` L ${right},${bottom - r}`
+        + ` A ${r},${r} 0 0 1 ${right - r},${bottom}`
+        + ` L ${left + r},${bottom}`
+        + ` A ${r},${r} 0 0 1 ${left},${bottom - r}`
+        + ` L ${left},${top + r}`
+        + ` A ${r},${r} 0 0 1 ${left + r},${top}`
+        + ` Z`;
+    } else {
+      d = `M ${left},${top} L ${right},${top} L ${right},${bottom} L ${left},${bottom} Z`;
+    }
   } else {
-    d = `M ${left},${top} L ${nx1},${top} L ${nx1},${nb} L ${nx2},${nb} L ${nx2},${top} L ${right},${top} L ${right},${bottom} L ${left},${bottom} Z`;
+    // Notched rectangle with text label cut into the top edge
+    const textW = measureText(text, fontSize, gp.Font, gp.IsBold);
+    const notchPadX = 4;
+    const notchPadY = 2;
+    const notchH = fontSize + notchPadY * 2 + strokeW;
+    const notchW = Math.ceil(textW) + notchPadX * 2;
+
+    let notchX;
+    if (align === 'Left') {
+      notchX = half + 6;
+    } else if (align === 'Right') {
+      notchX = w - half - notchW - 6;
+    } else {
+      notchX = (w - notchW) / 2;
+    }
+    notchX = Math.max(strokeW, Math.min(notchX, w - notchW - strokeW));
+
+    // Position text inside the notch
+    textEl.style.left = (notchX + notchPadX) + 'px';
+    textEl.style.top = (strokeW + notchPadY) + 'px';
+
+    const nx1 = notchX;
+    const nx2 = notchX + notchW;
+    const nb = notchH;
+
+    // Corner radius clamped so it fits around the notch geometry
+    const maxR = Math.min((nx1 - left) / 2, (right - nx2) / 2, (bottom - nb) / 2, notchW / 2, notchH - strokeW);
+    const r = Math.max(0, Math.min(cr, maxR));
+
+    if (r > 0) {
+      d = `M ${left},${top + r}`
+        + ` A ${r},${r} 0 0 1 ${left + r},${top}`
+        + ` L ${nx1 - r},${top}`
+        + ` A ${r},${r} 0 0 1 ${nx1},${top + r}`
+        + ` L ${nx1},${nb - r}`
+        + ` A ${r},${r} 0 0 0 ${nx1 + r},${nb}`
+        + ` L ${nx2 - r},${nb}`
+        + ` A ${r},${r} 0 0 0 ${nx2},${nb - r}`
+        + ` L ${nx2},${top + r}`
+        + ` A ${r},${r} 0 0 1 ${nx2 + r},${top}`
+        + ` L ${right - r},${top}`
+        + ` A ${r},${r} 0 0 1 ${right},${top + r}`
+        + ` L ${right},${bottom - r}`
+        + ` A ${r},${r} 0 0 1 ${right - r},${bottom}`
+        + ` L ${left + r},${bottom}`
+        + ` A ${r},${r} 0 0 1 ${left},${bottom - r}`
+        + ` Z`;
+    } else {
+      d = `M ${left},${top} L ${nx1},${top} L ${nx1},${nb} L ${nx2},${nb} L ${nx2},${top} L ${right},${top} L ${right},${bottom} L ${left},${bottom} Z`;
+    }
   }
 
   let path = svg.querySelector('path');
@@ -629,7 +693,6 @@ function renderGroupBox(body, label, gp) {
     path = document.createElementNS(svgNS, 'path');
     svg.appendChild(path);
   }
-  // Clean up any leftover elements from previous approaches
   for (const el of svg.querySelectorAll('.groupbox-fill, .groupbox-stroke')) el.remove();
 
   path.setAttribute('d', d);

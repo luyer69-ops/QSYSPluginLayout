@@ -465,7 +465,7 @@ function emitLayoutEntries(controls, graphics, I) {
     code += `${I}  Position = {${gfx.x}, ${gfx.y}},\n`;
     code += `${I}  Size = {${gfx.w}, ${gfx.h}},\n`;
 
-    if (gp.Text) code += `${I}  Text = "${gp.Text}",\n`;
+    if (gp.Text) code += `${I}  Text = "${luaEscape(gp.Text)}",\n`;
     if (gp.Color) code += `${I}  Color = ${luaColor(gp.Color)},\n`;
     if (gp.Fill) code += `${I}  Fill = ${luaColor(gp.Fill)},\n`;
     if (gp.Font && gp.Font !== 'Roboto') code += `${I}  Font = "${gp.Font}",\n`;
@@ -477,7 +477,7 @@ function emitLayoutEntries(controls, graphics, I) {
     if (gp.StrokeColor) code += `${I}  StrokeColor = ${luaColor(gp.StrokeColor)},\n`;
     if (gp.StrokeWidth !== undefined && gp.StrokeWidth !== 0) code += `${I}  StrokeWidth = ${gp.StrokeWidth},\n`;
     if (gp.CornerRadius) code += `${I}  CornerRadius = ${gp.CornerRadius},\n`;
-    if (gp.Image) code += `${I}  Image = "${gp.Image}",\n`;
+    if (gp.Image) code += `${I}  Image = "${luaEscape(gp.Image)}",\n`;
     if (gp.Margin) code += `${I}  Margin = ${gp.Margin},\n`;
     if (gp.Padding !== undefined && gp.Padding !== 1) code += `${I}  Padding = ${gp.Padding},\n`;
 
@@ -545,6 +545,8 @@ function emitLayoutBody(ctrl, I) {
     if (lp.TextBoxStyle && lp.TextBoxStyle !== 'Normal') code += `${I}TextBoxStyle = "${lp.TextBoxStyle}",\n`;
     if (lp.WordWrap) code += `${I}WordWrap = true,\n`;
   }
+
+  if (lp.ClassName) code += `${I}ClassName = "${luaEscape(lp.ClassName)}",\n`;
 
   return code;
 }
@@ -678,7 +680,7 @@ function generateRuntime(controls, autoStatus) {
   return code;
 }
 
-function luaEscape(str) {
+export function luaEscape(str) {
   return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
 }
 

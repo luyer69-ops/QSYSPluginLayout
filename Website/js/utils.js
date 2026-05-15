@@ -63,7 +63,34 @@ export function rectsOverlap(a, b) {
          a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
-/** Deep clone a plain object */
+/** @param {any} obj @returns {any} */
 export function deepClone(obj) {
-  return JSON.parse(JSON.stringify(obj));
+  return structuredClone(obj);
 }
+
+/**
+ * Returns true if the string is safe to use as a Q-SYS control name in generated Lua.
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function isValidLuaIdentifier(name) {
+  if (!name || !name.trim()) return false;
+  // Allow letters, digits, spaces, underscores — the editor supports spaces in control names
+  // but disallows characters that break Lua string literals: backslash, double-quote, newline
+  return !/[\\"\n\r\t]/.test(name);
+}
+
+/** Field limits for numeric inputs in the properties panel */
+export const FIELD_LIMITS = {
+  FontSize:     { min: 1,  max: 200 },
+  StrokeWidth:  { min: 0,  max: 64  },
+  CornerRadius: { min: 0,  max: 500 },
+  Margin:       { min: 0,  max: 500 },
+  Padding:      { min: 0,  max: 500 },
+  X:            { min: 0,  max: 9999 },
+  Y:            { min: 0,  max: 9999 },
+  Width:        { min: 8,  max: 9999 },
+  Height:       { min: 8,  max: 9999 },
+  ZOrder:       { min: 0,  max: 9999 },
+  Count:        { min: 1,  max: 999  },
+};

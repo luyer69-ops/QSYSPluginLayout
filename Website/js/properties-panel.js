@@ -4,7 +4,8 @@ import {
   H_TEXT_ALIGNS, V_TEXT_ALIGNS, GRAPHIC_TYPES, QSYS_FONTS, FONT_STYLES,
   STYLES_FOR_CONTROL_TYPE,
 } from './schema.js';
-import { rgbToHex, hexToRGB } from './utils.js';
+import { rgbToHex, hexToRGB, isValidLuaIdentifier, FIELD_LIMITS } from './utils.js';
+import { showToast } from './notifications.js';
 
 export class PropertiesPanel {
   constructor(dataModel, selectionManager, eventBus) {
@@ -69,11 +70,16 @@ export class PropertiesPanel {
     if (isArray) {
       this._readonlyRow('Array', `${cd.Name} [${obj.arrayIndex} of ${effectiveCount}]`);
     }
-    this._textRow('Name', cd.Name, v => {
+    this._nameRow('Name', cd.Name, v => {
       const trimmed = v.trim();
       if (!trimmed) return;
+      if (!isValidLuaIdentifier(trimmed)) {
+        showToast('Name contains invalid characters (avoid \\ " and newlines).', 'error');
+        this._rebuild();
+        return;
+      }
       if (this.dataModel.isNameTaken(trimmed, obj.id)) {
-        alert(`Control name "${trimmed}" is already in use.`);
+        showToast(`Control name "${trimmed}" is already in use.`, 'error');
         this._rebuild();
         return;
       }
@@ -101,10 +107,10 @@ export class PropertiesPanel {
 
     // Position & Size
     this._section('Position & Size');
-    this._numberRow('X', obj.x, v => this._updateTop(obj.id, { x: Math.max(0, v) }));
-    this._numberRow('Y', obj.y, v => this._updateTop(obj.id, { y: Math.max(0, v) }));
-    this._numberRow('Width', obj.w, v => this._updateTop(obj.id, { w: Math.max(8, v) }));
-    this._numberRow('Height', obj.h, v => this._updateTop(obj.id, { h: Math.max(8, v) }));
+    this._numberRow('X', obj.x, v => this._updateTop(obj.id, { x: Math.max(0, v) }), FIELD_LIMITS.X);
+    this._numberRow('Y', obj.y, v => this._updateTop(obj.id, { y: Math.max(0, v) }), FIELD_LIMITS.Y);
+    this._numberRow('Width', obj.w, v => this._updateTop(obj.id, { w: Math.max(8, v) }), FIELD_LIMITS.Width);
+    this._numberRow('Height', obj.h, v => this._updateTop(obj.id, { h: Math.max(8, v) }), FIELD_LIMITS.Height);
 
     // Control Definition
     this._section('Control Definition');
@@ -135,7 +141,7 @@ export class PropertiesPanel {
       this._selectRow('IndicatorType', cd.IndicatorType, INDICATOR_TYPES, v => updateCD(obj.id, { IndicatorType: v }));
     }
     this._numberRow('Count', effectiveCount, v => {
-      const newCount = Math.max(1, Math.round(v)) || 1;
+      const newCount = Math.max(1, Math.min(999, Math.round(v))) || 1;
       if (newCount === effectiveCount) return;
       this._suppressUpdate = true;
       this.dataModel.expandToArray(obj.id, newCount);
@@ -170,7 +176,7 @@ export class PropertiesPanel {
     this._selectRow('Font', lp.Font || 'Roboto', QSYS_FONTS, v => this._updateLayoutProps(obj.id, { Font: v }));
     const fontStyles = FONT_STYLES[lp.Font || 'Roboto'] || ['Regular'];
     this._selectRow('FontStyle', lp.FontStyle || 'Regular', fontStyles, v => this._updateLayoutProps(obj.id, { FontStyle: v }));
-    this._numberRow('FontSize', lp.FontSize || 12, v => this._updateLayoutProps(obj.id, { FontSize: v }));
+    this._numberRow('FontSize', lp.FontSize || 12, v => this._updateLayoutProps(obj.id, { FontSize: v }), FIELD_LIMITS.FontSize);
     this._selectRow('HTextAlign', lp.HTextAlign || 'Center', H_TEXT_ALIGNS, v => this._updateLayoutProps(obj.id, { HTextAlign: v }));
     this._selectRow('VTextAlign', lp.VTextAlign || 'Center', V_TEXT_ALIGNS, v => this._updateLayoutProps(obj.id, { VTextAlign: v }));
 
@@ -217,11 +223,12 @@ export class PropertiesPanel {
 
     // Advanced
     this._section('Advanced');
-    this._numberRow('StrokeWidth', lp.StrokeWidth !== undefined ? lp.StrokeWidth : 1, v => this._updateLayoutProps(obj.id, { StrokeWidth: v }), { min: 0, max: 64 });
+    this._numberRow('StrokeWidth', lp.StrokeWidth !== undefined ? lp.StrokeWidth : 1, v => this._updateLayoutProps(obj.id, { StrokeWidth: v }), FIELD_LIMITS.StrokeWidth);
     this._colorRow('StrokeColor', lp.StrokeColor, v => this._updateLayoutProps(obj.id, { StrokeColor: v }));
-    this._numberRow('Margin', lp.Margin || 0, v => this._updateLayoutProps(obj.id, { Margin: v }));
-    this._numberRow('Padding', lp.Padding !== undefined ? lp.Padding : 1, v => this._updateLayoutProps(obj.id, { Padding: v }));
-    this._numberRow('ZOrder', obj.zOrder || 0, v => this._updateTop(obj.id, { zOrder: v }));
+    this._numberRow('Margin', lp.Margin || 0, v => this._updateLayoutProps(obj.id, { Margin: v }), FIELD_LIMITS.Margin);
+    this._numberRow('Padding', lp.Padding !== undefined ? lp.Padding : 1, v => this._updateLayoutProps(obj.id, { Padding: v }), FIELD_LIMITS.Padding);
+    this._numberRow('ZOrder', obj.zOrder || 0, v => this._updateTop(obj.id, { zOrder: v }), FIELD_LIMITS.ZOrder);
+    this._textRow('ClassName', lp.ClassName || '', v => this._updateLayoutProps(obj.id, { ClassName: v || undefined }));
   }
 
   // ── Graphic Properties ──
@@ -248,10 +255,10 @@ export class PropertiesPanel {
     this._pageRow(obj);
 
     this._section('Position & Size');
-    this._numberRow('X', obj.x, v => this._updateTop(obj.id, { x: Math.max(0, v) }));
-    this._numberRow('Y', obj.y, v => this._updateTop(obj.id, { y: Math.max(0, v) }));
-    this._numberRow('Width', obj.w, v => this._updateTop(obj.id, { w: Math.max(8, v) }));
-    this._numberRow('Height', obj.h, v => this._updateTop(obj.id, { h: Math.max(8, v) }));
+    this._numberRow('X', obj.x, v => this._updateTop(obj.id, { x: Math.max(0, v) }), FIELD_LIMITS.X);
+    this._numberRow('Y', obj.y, v => this._updateTop(obj.id, { y: Math.max(0, v) }), FIELD_LIMITS.Y);
+    this._numberRow('Width', obj.w, v => this._updateTop(obj.id, { w: Math.max(8, v) }), FIELD_LIMITS.Width);
+    this._numberRow('Height', obj.h, v => this._updateTop(obj.id, { h: Math.max(8, v) }), FIELD_LIMITS.Height);
 
     if (!isImage) {
       this._section('Appearance');
@@ -261,24 +268,24 @@ export class PropertiesPanel {
       }
       if (gp.Type !== 'Header') {
         this._colorRow('StrokeColor', gp.StrokeColor, v => this._updateGraphicProps(obj.id, { StrokeColor: v }));
-        this._numberRow('StrokeWidth', gp.StrokeWidth !== undefined ? gp.StrokeWidth : 0, v => this._updateGraphicProps(obj.id, { StrokeWidth: v }), { min: 0, max: 64 });
-        this._numberRow('CornerRadius', gp.CornerRadius || 0, v => this._updateGraphicProps(obj.id, { CornerRadius: v }));
+        this._numberRow('StrokeWidth', gp.StrokeWidth !== undefined ? gp.StrokeWidth : 0, v => this._updateGraphicProps(obj.id, { StrokeWidth: v }), FIELD_LIMITS.StrokeWidth);
+        this._numberRow('CornerRadius', gp.CornerRadius || 0, v => this._updateGraphicProps(obj.id, { CornerRadius: v }), FIELD_LIMITS.CornerRadius);
       }
 
       this._section('Font');
       this._selectRow('Font', gp.Font || 'Roboto', QSYS_FONTS, v => this._updateGraphicProps(obj.id, { Font: v }));
-      this._numberRow('FontSize', gp.FontSize || 12, v => this._updateGraphicProps(obj.id, { FontSize: v }));
+      this._numberRow('FontSize', gp.FontSize || 12, v => this._updateGraphicProps(obj.id, { FontSize: v }), FIELD_LIMITS.FontSize);
       this._checkboxRow('IsBold', gp.IsBold || false, v => this._updateGraphicProps(obj.id, { IsBold: v }));
       this._selectRow('HTextAlign', gp.HTextAlign || 'Center', H_TEXT_ALIGNS, v => this._updateGraphicProps(obj.id, { HTextAlign: v }));
       if (gp.Type === 'Label') {
         this._selectRow('VTextAlign', gp.VTextAlign || 'Center', V_TEXT_ALIGNS, v => this._updateGraphicProps(obj.id, { VTextAlign: v }));
-        this._numberRow('Margin', gp.Margin || 0, v => this._updateGraphicProps(obj.id, { Margin: v }));
-        this._numberRow('Padding', gp.Padding !== undefined ? gp.Padding : 1, v => this._updateGraphicProps(obj.id, { Padding: v }));
+        this._numberRow('Margin', gp.Margin || 0, v => this._updateGraphicProps(obj.id, { Margin: v }), FIELD_LIMITS.Margin);
+        this._numberRow('Padding', gp.Padding !== undefined ? gp.Padding : 1, v => this._updateGraphicProps(obj.id, { Padding: v }), FIELD_LIMITS.Padding);
       }
     }
 
     this._section('Advanced');
-    this._numberRow('ZOrder', obj.zOrder || 0, v => this._updateTop(obj.id, { zOrder: v }));
+    this._numberRow('ZOrder', obj.zOrder || 0, v => this._updateTop(obj.id, { zOrder: v }), FIELD_LIMITS.ZOrder);
   }
 
   // ── Multi-select ──
@@ -517,6 +524,40 @@ export class PropertiesPanel {
   focusProperty(propName) {
     const input = this.contentEl.querySelector(`[data-prop="${propName}"]`);
     if (input) { input.focus(); input.select(); }
+  }
+
+  // Name row with inline error display
+  _nameRow(label, value, onChange) {
+    const row = this._makeRow(label);
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:flex; flex-direction:column; flex:1; gap:2px;';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.dataset.prop = label;
+    input.value = value || '';
+
+    const errMsg = document.createElement('span');
+    errMsg.className = 'props-inline-error';
+
+    const commit = () => {
+      const trimmed = input.value.trim();
+      errMsg.textContent = '';
+      input.classList.remove('input-error');
+      if (!trimmed) return;
+      if (!isValidLuaIdentifier(trimmed)) {
+        input.classList.add('input-error');
+        errMsg.textContent = 'Invalid characters (avoid \\ " newlines)';
+        return;
+      }
+      onChange(trimmed);
+    };
+    input.addEventListener('change', commit);
+    input.addEventListener('blur', commit);
+    wrapper.appendChild(input);
+    wrapper.appendChild(errMsg);
+    row.appendChild(wrapper);
+    this.contentEl.appendChild(row);
   }
 
   _textRow(label, value, onChange, placeholder) {

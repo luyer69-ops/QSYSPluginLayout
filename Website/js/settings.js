@@ -1,7 +1,7 @@
 const STORAGE_KEY = 'qsys-layout-editor-settings';
 
 const DEFAULTS = {
-  defaultUserPin: false,
+  defaultUserPin: true,
   defaultPinStyle: 'Both',
   autoAddLabel: true,
   gridSize: 10,

@@ -17,6 +17,7 @@ export class CanvasManager {
     this.gridSize = 10;
     this.showGrid = true;
     this.snapEnabled = true;
+    this._guideEls = []; // pool of smart-guide DOM elements
 
     this._setupGrid();
     this._updateCanvasLayout();
@@ -133,17 +134,28 @@ export class CanvasManager {
   }
 
   _rebuildAll() {
-    // Remove all existing elements
-    for (const el of this._elements.values()) {
-      el.remove();
-    }
-    this._elements.clear();
+    // Differential rebuild: only add/remove/update what changed (improvement #7)
+    const currentObjects = this.dataModel.getAllObjects();
+    const currentIds = new Set(currentObjects.map(o => o.id));
 
-    // Rebuild from model
-    this._updateCanvasLayout();
-    for (const obj of this.dataModel.getAllObjects()) {
-      this._addElement(obj);
+    // Remove elements no longer visible
+    for (const [id, el] of this._elements) {
+      if (!currentIds.has(id)) {
+        el.remove();
+        this._elements.delete(id);
+      }
     }
+
+    // Update existing or add new elements
+    for (const obj of currentObjects) {
+      if (this._elements.has(obj.id)) {
+        updateObjectElement(this._elements.get(obj.id), obj);
+      } else {
+        this._addElement(obj);
+      }
+    }
+
+    this._updateCanvasLayout();
   }
 
   _updateSelectionVisuals(selectedIds) {
@@ -266,20 +278,39 @@ export class CanvasManager {
     if (ds.type === 'move') {
       if (!ds.hasMoved) this.eventBus.emit('drag:start');
       ds.hasMoved = true;
-      // Use screen-space delta (immune to canvas resizing during drag)
       const dx = e.clientX - ds.startClient.x;
       const dy = e.clientY - ds.startClient.y;
+
+      // ── Smart guides: compute guide snaps against non-selected objects ──
+      let guideDX = 0, guideDY = 0;
+      if (!(e.ctrlKey || e.metaKey) && ds.originals.size > 0) {
+        const origRects = [...ds.originals.values()];
+        const proposed = {
+          left:   Math.min(...origRects.map(r => r.x))       + dx,
+          right:  Math.max(...origRects.map(r => r.x + r.w)) + dx,
+          top:    Math.min(...origRects.map(r => r.y))       + dy,
+          bottom: Math.max(...origRects.map(r => r.y + r.h)) + dy,
+        };
+        proposed.cx = (proposed.left + proposed.right) / 2;
+        proposed.cy = (proposed.top  + proposed.bottom) / 2;
+        const gr = this._computeSmartGuides(proposed, new Set(ds.ids));
+        guideDX = gr.snapDX;
+        guideDY = gr.snapDY;
+        this._showGuides(gr.guides);
+      } else {
+        this._clearGuides();
+      }
+
       const updates = ds.ids.map(id => {
         const orig = ds.originals.get(id);
         let newX = orig.x + dx;
         let newY = orig.y + dy;
-        if (this.snapEnabled && !e.ctrlKey && !e.metaKey) {
-          newX = this._snap(newX);
-          newY = this._snap(newY);
-        }
-        newX = Math.max(0, newX);
-        newY = Math.max(0, newY);
-        return { id, changes: { x: newX, y: newY } };
+        // Guide snap overrides grid snap per axis
+        if (guideDX !== 0) { newX += guideDX; }
+        else if (this.snapEnabled && !(e.ctrlKey || e.metaKey)) { newX = this._snap(newX); }
+        if (guideDY !== 0) { newY += guideDY; }
+        else if (this.snapEnabled && !(e.ctrlKey || e.metaKey)) { newY = this._snap(newY); }
+        return { id, changes: { x: Math.max(0, newX), y: Math.max(0, newY) } };
       });
       this.dataModel.updateMultiple(updates);
     }
@@ -320,6 +351,8 @@ export class CanvasManager {
       this.selectionRectEl.hidden = true;
     }
 
+    this._clearGuides();
+
     if (ds.type === 'move' && !ds.hasMoved) {
       // Was a click without drag — if clicking already-selected object without shift,
       // select only this one (deselect others)
@@ -357,20 +390,25 @@ export class CanvasManager {
   }
 
   _computeResize(orig, dir, dx, dy, bypassSnap = false) {
-    let { x, y, w, h } = orig;
     const MIN = 8;
+    let w = orig.w, h = orig.h, x = orig.x, y = orig.y;
 
-    if (dir.includes('e')) { w = Math.max(MIN, orig.w + dx); }
-    if (dir.includes('w')) { w = Math.max(MIN, orig.w - dx); x = orig.x + orig.w - w; }
-    if (dir.includes('s')) { h = Math.max(MIN, orig.h + dy); }
-    if (dir.includes('n')) { h = Math.max(MIN, orig.h - dy); y = orig.y + orig.h - h; }
+    if (dir.includes('e')) w = orig.w + dx;
+    if (dir.includes('w')) w = orig.w - dx;
+    if (dir.includes('s')) h = orig.h + dy;
+    if (dir.includes('n')) h = orig.h - dy;
+
+    w = Math.max(MIN, w);
+    h = Math.max(MIN, h);
 
     if (this.snapEnabled && !bypassSnap) {
       w = this._snap(w) || MIN;
       h = this._snap(h) || MIN;
-      x = this._snap(x);
-      y = this._snap(y);
     }
+
+    // Recalculate position after snapping so the fixed edge stays fixed (improvement #2)
+    if (dir.includes('w')) x = orig.x + orig.w - w;
+    if (dir.includes('n')) y = orig.y + orig.h - h;
 
     x = Math.max(0, x);
     y = Math.max(0, y);
@@ -393,6 +431,76 @@ export class CanvasManager {
       w: Math.abs(p2.x - p1.x),
       h: Math.abs(p2.y - p1.y),
     };
+  }
+
+  // ── Smart Guides ──────────────────────────────────────────────────────────
+
+  _computeSmartGuides(proposed, draggedIdSet) {
+    const THRESHOLD = Math.max(6, Math.floor(this.gridSize / 2));
+    const candidates = this.dataModel.getAllObjects().filter(o => !draggedIdSet.has(o.id));
+    if (candidates.length === 0) return { snapDX: 0, snapDY: 0, guides: [] };
+
+    const dragX = [proposed.left, proposed.cx, proposed.right];
+    const dragY = [proposed.top,  proposed.cy, proposed.bottom];
+
+    let bestDX = null, xGuide = null;
+    let bestDY = null, yGuide = null;
+
+    for (const obj of candidates) {
+      const ox = [obj.x, obj.x + obj.w / 2, obj.x + obj.w];
+      const oy = [obj.y, obj.y + obj.h / 2, obj.y + obj.h];
+
+      for (const dp of dragX) {
+        for (const cp of ox) {
+          const d = cp - dp;
+          if (Math.abs(d) <= THRESHOLD && (bestDX === null || Math.abs(d) < Math.abs(bestDX))) {
+            bestDX = d; xGuide = cp;
+          }
+        }
+      }
+      for (const dp of dragY) {
+        for (const cp of oy) {
+          const d = cp - dp;
+          if (Math.abs(d) <= THRESHOLD && (bestDY === null || Math.abs(d) < Math.abs(bestDY))) {
+            bestDY = d; yGuide = cp;
+          }
+        }
+      }
+    }
+
+    const guides = [];
+    if (xGuide !== null) guides.push({ type: 'v', pos: xGuide });
+    if (yGuide !== null) guides.push({ type: 'h', pos: yGuide });
+    return { snapDX: bestDX ?? 0, snapDY: bestDY ?? 0, guides };
+  }
+
+  _showGuides(guides) {
+    while (this._guideEls.length < guides.length) {
+      const el = document.createElement('div');
+      el.className = 'smart-guide';
+      this.canvasEl.appendChild(el);
+      this._guideEls.push(el);
+    }
+    guides.forEach((g, i) => {
+      const el = this._guideEls[i];
+      el.style.display = '';
+      if (g.type === 'v') {
+        el.className = 'smart-guide smart-guide-v';
+        el.style.left = g.pos + 'px';
+        el.style.top  = '';
+      } else {
+        el.className = 'smart-guide smart-guide-h';
+        el.style.top  = g.pos + 'px';
+        el.style.left = '';
+      }
+    });
+    for (let i = guides.length; i < this._guideEls.length; i++) {
+      this._guideEls[i].style.display = 'none';
+    }
+  }
+
+  _clearGuides() {
+    for (const el of this._guideEls) el.style.display = 'none';
   }
 
   getElementForObject(id) {

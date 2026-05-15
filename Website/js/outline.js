@@ -17,12 +17,27 @@ export class Outline {
     this.dataModel = dataModel;
     this.selection = selectionManager;
     this.eventBus = eventBus;
+    this._filterText = '';
 
     this.el = document.createElement('div');
     this.el.id = 'outline';
     const header = document.createElement('h3');
     header.textContent = 'Outline';
     this.el.appendChild(header);
+
+    // Filter input
+    this._filterInput = document.createElement('input');
+    this._filterInput.type = 'search';
+    this._filterInput.placeholder = 'Filter…';
+    this._filterInput.className = 'outline-filter';
+    this._filterInput.addEventListener('input', () => {
+      this._filterText = this._filterInput.value.toLowerCase();
+      this._applyFilter();
+    });
+    this._filterInput.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { this._filterInput.value = ''; this._filterText = ''; this._applyFilter(); }
+    });
+    this.el.appendChild(this._filterInput);
 
     this._listEl = document.createElement('div');
     this.el.appendChild(this._listEl);
@@ -37,7 +52,14 @@ export class Outline {
     const render = () => this._render();
     this.eventBus.on('object:added', render);
     this.eventBus.on('object:removed', render);
-    this.eventBus.on('object:updated', render);
+    this.eventBus.on('object:updated', obj => {
+      // Lightweight update: only re-render if the displayed name may have changed
+      if (obj.kind === 'control' || (obj.graphicProps && obj.graphicProps.Text !== undefined)) {
+        render();
+      } else {
+        this._updateHighlights(this.selection.getSelectedIds());
+      }
+    });
     this.eventBus.on('objects:bulk-updated', render);
     this.eventBus.on('model:loaded', render);
     this.eventBus.on('page:added', render);
@@ -90,6 +112,35 @@ export class Outline {
     }
 
     this._updateHighlights(this.selection.getSelectedIds());
+    this._applyFilter();
+  }
+
+  _applyFilter() {
+    const q = this._filterText;
+    if (!q) {
+      for (const item of this._listEl.querySelectorAll('.outline-item')) {
+        item.hidden = false;
+      }
+      for (const grp of this._listEl.querySelectorAll('.outline-group')) {
+        grp.hidden = false;
+      }
+      return;
+    }
+    for (const grp of this._listEl.querySelectorAll('.outline-group')) {
+      let anyVisible = false;
+      for (const item of grp.querySelectorAll('.outline-item')) {
+        const name = (item.querySelector('.outline-name')?.textContent || '').toLowerCase();
+        const match = name.includes(q);
+        item.hidden = !match;
+        if (match) anyVisible = true;
+      }
+      grp.hidden = !anyVisible;
+    }
+    // Flat list (single page)
+    for (const item of this._listEl.querySelectorAll(':scope > .outline-item')) {
+      const name = (item.querySelector('.outline-name')?.textContent || '').toLowerCase();
+      item.hidden = !name.includes(q);
+    }
   }
 
   _renderItem(obj) {

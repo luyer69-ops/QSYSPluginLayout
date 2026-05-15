@@ -16,12 +16,19 @@
     <!-- ── Toolbar ── -->
     <header id="toolbar">
       <div class="toolbar-row">
+        <div id="toolbar-logo">
+          <img src="img/logo.png" alt="Company logo" id="company-logo">
+        </div>
+        <div class="toolbar-separator"></div>
+
         <div class="toolbar-group" id="toolbar-file">
           <button id="btn-new" title="New Project">New</button>
           <button id="btn-save" title="Save Project (JSON)">Save</button>
           <button id="btn-load" title="Load Project (JSON)">Load</button>
+          <button id="btn-import-qplug" title="Import from .qplug file (Lua)">Import .qplug</button>
           <button id="btn-download" title="Download as .qplug file">Download</button>
           <input type="file" id="file-input" accept=".json" hidden>
+          <input type="file" id="file-input-qplug" accept=".qplug,.lua" hidden>
         </div>
         <div class="toolbar-separator"></div>
 
@@ -35,8 +42,10 @@
         <div class="toolbar-group">
           <button id="btn-settings" title="Application Settings">&#x2699; Settings</button>
           <button id="btn-theme-toggle" title="Toggle light/dark canvas theme">&#x25D0; Theme</button>
+          <button id="btn-shortcuts" title="Keyboard Shortcuts">&#x2328; Shortcuts</button>
           <button id="btn-help" title="Help">&#x2753; Help</button>
           <button id="btn-about" title="About">&#x2139; About</button>
+          <span id="save-indicator" class="save-indicator save-indicator-idle"></span>
         </div>
       </div>
 
@@ -52,6 +61,8 @@
         <div class="toolbar-separator"></div>
 
         <div class="toolbar-group" id="toolbar-distribute">
+          <label title="Gap between elements (px). Empty = equal spacing.">Gap:</label>
+          <input type="number" id="dist-gap" class="toolbar-input-sm" min="0" max="2000" placeholder="px" title="Gap in px for Space operations. Empty = equal spacing between extremes.">
           <button id="btn-dist-h" title="Space Horizontally">&#x2194;S</button>
           <button id="btn-dist-v" title="Space Vertically">&#x2195;S</button>
           <button id="btn-space-even-h" title="Distribute Across Page (Horizontal)">&#x2194;D</button>
@@ -84,8 +95,34 @@
           <button id="btn-bring-front" title="Bring to Front (Ctrl+F)">&#x2191;F</button>
           <button id="btn-send-back" title="Send to Back (Ctrl+B)">&#x2193;B</button>
         </div>
+        <div class="toolbar-separator"></div>
+
+        <div class="toolbar-group" id="toolbar-grid">
+          <button id="btn-grid-arrange" title="Arrange selected objects in a grid">&#x22EE;&#x22EE; Grid</button>
+        </div>
       </div>
     </header>
+
+    <!-- ── Grid Arrange Popover ── -->
+    <div id="grid-popover" class="grid-popover" hidden>
+      <div class="grid-popover-title">Grid Arrange</div>
+      <div class="grid-popover-row">
+        <label>Columns</label>
+        <input type="number" id="grid-cols" min="1" max="50" value="2">
+      </div>
+      <div class="grid-popover-row">
+        <label>Gap X (px)</label>
+        <input type="number" id="grid-gap-x" min="0" max="2000" value="4">
+      </div>
+      <div class="grid-popover-row">
+        <label>Gap Y (px)</label>
+        <input type="number" id="grid-gap-y" min="0" max="2000" value="4">
+      </div>
+      <div class="grid-popover-footer">
+        <button id="grid-apply" class="btn-primary">Apply</button>
+        <button id="grid-cancel">Cancel</button>
+      </div>
+    </div>
 
     <!-- ── Settings Modal ── -->
     <div id="settings-overlay" class="modal-overlay" hidden>
@@ -99,7 +136,7 @@
             <h4>New Control Defaults</h4>
             <div class="settings-row">
               <label>UserPin enabled by default</label>
-              <input type="checkbox" id="setting-default-user-pin" checked>
+              <input type="checkbox" id="setting-default-user-pin">
             </div>
             <div class="settings-row">
               <label>Default PinStyle</label>
@@ -166,7 +203,7 @@
 
     <!-- ── Disclaimer Modal ── -->
     <div id="disclaimer-overlay" class="modal-overlay" hidden>
-      <div class="modal-dialog" style="max-width:480px">
+      <div class="modal-dialog modal-sm">
         <div class="modal-header">
           <h3>Disclaimer</h3>
         </div>
@@ -189,7 +226,7 @@
 
     <!-- ── About Modal ── -->
     <div id="about-overlay" class="modal-overlay" hidden>
-      <div class="modal-dialog" style="max-width:440px">
+      <div class="modal-dialog modal-sm">
         <div class="modal-header">
           <h3>About</h3>
           <button id="about-close" class="modal-close" title="Close">&times;</button>
@@ -212,7 +249,7 @@
 
     <!-- ── PluginInfo Modal ── -->
     <div id="plugininfo-overlay" class="modal-overlay" hidden>
-      <div class="modal-dialog" style="max-width:500px">
+      <div class="modal-dialog modal-md">
         <div class="modal-header">
           <h3>PluginInfo</h3>
           <button id="plugininfo-close" class="modal-close" title="Close">&times;</button>
@@ -282,7 +319,7 @@
 
     <!-- ── Pins Modal ── -->
     <div id="pins-overlay" class="modal-overlay" hidden>
-      <div class="modal-dialog" style="max-width:520px">
+      <div class="modal-dialog modal-md">
         <div class="modal-header">
           <h3>Audio / Serial Pins</h3>
           <button id="pins-close" class="modal-close" title="Close">&times;</button>
@@ -302,7 +339,7 @@
 
     <!-- ── Design-Time Properties Modal ── -->
     <div id="designprops-overlay" class="modal-overlay" hidden>
-      <div class="modal-dialog" style="max-width:560px">
+      <div class="modal-dialog modal-lg">
         <div class="modal-header">
           <h3>Design-Time Properties</h3>
           <button id="designprops-close" class="modal-close" title="Close">&times;</button>
@@ -380,7 +417,26 @@
       </div>
       <pre id="lua-output-wrap"><code id="lua-output"></code></pre>
     </footer>
-  </div>
+
+    <!-- ── Shortcuts Modal ── -->
+    <div id="shortcuts-overlay" class="modal-overlay" hidden>
+      <div class="modal-dialog modal-md">
+        <div class="modal-header">
+          <h3>Keyboard Shortcuts</h3>
+          <button id="shortcuts-close" class="modal-close" title="Close">&times;</button>
+        </div>
+        <div class="modal-body" id="shortcuts-body">
+        </div>
+        <div class="modal-footer">
+          <button id="shortcuts-ok" class="btn-primary">OK</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /#app -->
+
+  <!-- Toast notifications container -->
+  <div id="toast-container"></div>
 
   <script>
     // Emergency reset: append ?reset=true to the URL to wipe all localStorage

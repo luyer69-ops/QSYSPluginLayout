@@ -167,6 +167,60 @@ export function spaceEvenlyHorizontal(rects, canvasWidth) {
   });
 }
 
+// ── Block B: distribution with explicit gap ──────────────────────────────────
+
+export function distributeHorizontallyWithGap(rects, gap) {
+  if (rects.length < 2) return [];
+  const sorted = [...rects].sort((a, b) => a.x - b.x);
+  let currentX = sorted[0].x;
+  return sorted.map(r => {
+    const update = { id: r.id, changes: { x: Math.round(currentX) } };
+    currentX += r.w + gap;
+    return update;
+  });
+}
+
+export function distributeVerticallyWithGap(rects, gap) {
+  if (rects.length < 2) return [];
+  const sorted = [...rects].sort((a, b) => a.y - b.y);
+  let currentY = sorted[0].y;
+  return sorted.map(r => {
+    const update = { id: r.id, changes: { y: Math.round(currentY) } };
+    currentY += r.h + gap;
+    return update;
+  });
+}
+
+// ── Block C: grid arrangement ─────────────────────────────────────────────────
+
+export function arrangeInGrid(rects, cols, gapX, gapY) {
+  if (rects.length === 0 || cols < 1) return [];
+  const c = Math.min(cols, rects.length);
+  const rows = Math.ceil(rects.length / c);
+  // Sort top→bottom, left→right so visual order becomes grid order
+  const sorted = [...rects].sort((a, b) => a.y !== b.y ? a.y - b.y : a.x - b.x);
+  const anchorX = Math.min(...rects.map(r => r.x));
+  const anchorY = Math.min(...rects.map(r => r.y));
+  // Max cell size per column/row (preserves variable-size items)
+  const colWidths  = Array(c).fill(0);
+  const rowHeights = Array(rows).fill(0);
+  sorted.forEach((r, i) => {
+    colWidths[i % c]           = Math.max(colWidths[i % c], r.w);
+    rowHeights[Math.floor(i / c)] = Math.max(rowHeights[Math.floor(i / c)], r.h);
+  });
+  const colOffsets = [0];
+  for (let i = 1; i < c; i++) colOffsets.push(colOffsets[i - 1] + colWidths[i - 1] + gapX);
+  const rowOffsets = [0];
+  for (let i = 1; i < rows; i++) rowOffsets.push(rowOffsets[i - 1] + rowHeights[i - 1] + gapY);
+  return sorted.map((r, i) => ({
+    id: r.id,
+    changes: {
+      x: anchorX + colOffsets[i % c],
+      y: anchorY + rowOffsets[Math.floor(i / c)],
+    }
+  }));
+}
+
 export function spaceEvenlyVertical(rects, canvasHeight) {
   if (rects.length < 1) return [];
   if (rects.length === 1) {

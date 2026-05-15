@@ -6,14 +6,14 @@ export class DataModel {
     this.eventBus = eventBus;
     this.settings = settings;
     this.objects = [];
+    this._objectsById = new Map(); // O(1) lookup by id (improvement #5)
     this._nameCounters = {};
-    this.pluginInfo = null; // null means not configured
-    this.pins = []; // GetPins entries: { Name, Direction, Domain }
-    this.designProperties = []; // GetProperties entries
+    this.pluginInfo = null;
+    this.pins = [];
+    this.designProperties = [];
     this.undoManager = null;
     this._restoring = false;
 
-    // Page support
     const defaultPage = {
       id: generateId(),
       name: 'Page 1',
@@ -91,7 +91,6 @@ export class DataModel {
     const idx = this.pages.findIndex(p => p.id === pageId);
     if (idx === -1) return;
 
-    // Reassign objects on this page to unassigned (visible on all pages)
     const reassigned = this.objects.filter(o => o.pageId === pageId);
     for (const obj of reassigned) {
       obj.pageId = null;
@@ -99,7 +98,6 @@ export class DataModel {
 
     const removed = this.pages.splice(idx, 1)[0];
 
-    // If viewing the deleted page, switch to adjacent
     if (this.currentPageId === pageId) {
       const newIdx = Math.min(idx, this.pages.length - 1);
       this.currentPageId = this.pages[newIdx].id;
@@ -107,7 +105,6 @@ export class DataModel {
 
     this.eventBus.emit('page:removed', removed);
 
-    // Notify canvas about reassigned objects so they become visible
     if (reassigned.length > 0) {
       this.eventBus.emit('objects:bulk-updated', reassigned);
     }
@@ -117,7 +114,6 @@ export class DataModel {
     this._saveUndo();
     const page = this.pages.find(p => p.id === pageId);
     if (!page) return;
-    // Ensure uniqueness
     let finalName = name;
     if (this.pages.some(p => p.id !== pageId && p.name === finalName)) {
       let suffix = 2;
@@ -171,12 +167,10 @@ export class DataModel {
     return `Page ${n}`;
   }
 
-  /** Check if a control name is already used by another control (or array group) */
   isNameTaken(name, excludeId) {
     for (const obj of this.objects) {
       if (obj.kind !== 'control') continue;
       if (obj.id === excludeId) continue;
-      // For array members, skip siblings (same arrayGroup)
       if (excludeId) {
         const excludeObj = this.getObject(excludeId);
         if (excludeObj && excludeObj.arrayGroup && obj.arrayGroup === excludeObj.arrayGroup) continue;
@@ -215,12 +209,12 @@ export class DataModel {
       controlDef: { ...deepClone(defaults.controlDef), Name: name },
       layoutProps: deepClone(defaults.layoutProps),
     };
-    // Apply settings for UserPin defaults
     if (this.settings) {
       obj.controlDef.UserPin = this.settings.get('defaultUserPin');
       obj.controlDef.PinStyle = this.settings.get('defaultPinStyle');
     }
     this.objects.push(obj);
+    this._objectsById.set(obj.id, obj);
     this.eventBus.emit('object:added', obj);
     return obj;
   }
@@ -240,6 +234,7 @@ export class DataModel {
       graphicProps: deepClone(defaults.graphicProps),
     };
     this.objects.push(obj);
+    this._objectsById.set(obj.id, obj);
     this.eventBus.emit('object:added', obj);
     return obj;
   }
@@ -247,15 +242,13 @@ export class DataModel {
   addObject(obj) {
     this._saveUndo();
     this.objects.push(obj);
+    this._objectsById.set(obj.id, obj);
     this.eventBus.emit('object:added', obj);
   }
 
+  // Delegates to removeObjects for consistency (improvement #16)
   removeObject(id) {
-    this._saveUndo();
-    const idx = this.objects.findIndex(o => o.id === id);
-    if (idx === -1) return;
-    const removed = this.objects.splice(idx, 1)[0];
-    this.eventBus.emit('object:removed', removed);
+    this.removeObjects([id]);
   }
 
   removeObjects(ids) {
@@ -264,22 +257,20 @@ export class DataModel {
     const removed = this.objects.filter(o => idSet.has(o.id));
     this.objects = this.objects.filter(o => !idSet.has(o.id));
     for (const obj of removed) {
+      this._objectsById.delete(obj.id);
       this.eventBus.emit('object:removed', obj);
     }
 
-    // Check for orphaned array groups — renumber or convert to standalone
     const affectedGroups = new Set(
       removed.filter(o => o.arrayGroup).map(o => o.arrayGroup)
     );
     for (const groupId of affectedGroups) {
       const remaining = this.getArrayGroup(groupId);
       if (remaining.length === 1) {
-        // Convert last member to standalone
         remaining[0].arrayGroup = null;
         remaining[0].arrayIndex = null;
         this.eventBus.emit('object:updated', remaining[0]);
       } else if (remaining.length > 1) {
-        // Renumber
         remaining.forEach((m, i) => { m.arrayIndex = i + 1; });
         this.eventBus.emit('objects:bulk-updated', remaining);
       }
@@ -320,8 +311,9 @@ export class DataModel {
     this.eventBus.emit('objects:bulk-updated', changed);
   }
 
+  // O(1) lookup via Map (improvement #5)
   getObject(id) {
-    return this.objects.find(o => o.id === id) || null;
+    return this._objectsById.get(id) || null;
   }
 
   getAllObjects() {
@@ -385,14 +377,15 @@ export class DataModel {
     }
 
     if (count === 1 && currentCount > 1) {
-      // Contract to standalone: keep first, remove rest
       const keep = currentMembers[0];
       const removeIds = currentMembers.slice(1).map(m => m.id);
-      // Remove without triggering orphan cleanup (we handle it here)
       const removeSet = new Set(removeIds);
       const removed = this.objects.filter(o => removeSet.has(o.id));
       this.objects = this.objects.filter(o => !removeSet.has(o.id));
-      for (const r of removed) this.eventBus.emit('object:removed', r);
+      for (const r of removed) {
+        this._objectsById.delete(r.id);
+        this.eventBus.emit('object:removed', r);
+      }
       keep.arrayGroup = null;
       keep.arrayIndex = null;
       delete keep.controlDef.Count;
@@ -401,7 +394,6 @@ export class DataModel {
       return;
     }
 
-    // Assign group ID if not already an array
     const groupId = obj.arrayGroup || generateId();
     if (!obj.arrayGroup) {
       obj.arrayGroup = groupId;
@@ -411,9 +403,10 @@ export class DataModel {
     }
 
     if (count > currentCount) {
-      // Expand: add new members after the last one
       const lastMember = currentMembers[currentMembers.length - 1];
-      const spacing = lastMember.h + 4;
+      // Use grid size for spacing between array members (improvement #14)
+      const grid = this.settings ? (this.settings.get('gridSize') || 4) : 4;
+      const spacing = lastMember.h + grid;
       for (let i = currentCount + 1; i <= count; i++) {
         const newObj = {
           id: generateId(),
@@ -431,15 +424,18 @@ export class DataModel {
         };
         delete newObj.controlDef.Count;
         this.objects.push(newObj);
+        this._objectsById.set(newObj.id, newObj);
         this.eventBus.emit('object:added', newObj);
       }
     } else {
-      // Contract: remove members from the end
       const removeIds = currentMembers.slice(count).map(m => m.id);
       const removeSet = new Set(removeIds);
       const removed = this.objects.filter(o => removeSet.has(o.id));
       this.objects = this.objects.filter(o => !removeSet.has(o.id));
-      for (const r of removed) this.eventBus.emit('object:removed', r);
+      for (const r of removed) {
+        this._objectsById.delete(r.id);
+        this.eventBus.emit('object:removed', r);
+      }
     }
     if (this.undoManager) this.undoManager.endBatch();
   }
@@ -453,13 +449,11 @@ export class DataModel {
     }
 
     if (!obj.arrayGroup) {
-      // Standalone — just update normally
       this.updateObject(id, { controlDef: changes });
       if (this.undoManager) this.undoManager.endBatch();
       return;
     }
 
-    // Propagate to all members of the group
     const members = this.getArrayGroup(obj.arrayGroup);
     const updates = members.map(m => ({
       id: m.id,
@@ -481,23 +475,47 @@ export class DataModel {
       dupe.x += offsetX;
       dupe.y += offsetY;
       dupe.zOrder = this.objects.length;
-      // Duplicated array members become standalone
       dupe.arrayGroup = null;
       dupe.arrayIndex = null;
       if (dupe.kind === 'control') {
         dupe.controlDef.Name = this._uniqueName(orig.controlDef.Name);
       }
       this.objects.push(dupe);
+      this._objectsById.set(dupe.id, dupe);
       this.eventBus.emit('object:added', dupe);
       dupes.push(dupe);
     }
     return dupes;
   }
 
+  // Paste previously copied object data (for Ctrl+V clipboard, improvement #13)
+  pasteObjects(objectDatas, offsetX = 20, offsetY = 20) {
+    this._saveUndo();
+    const pasted = [];
+    for (const data of objectDatas) {
+      const dupe = deepClone(data);
+      dupe.id = generateId();
+      dupe.pageId = this.currentPageId;
+      dupe.x += offsetX;
+      dupe.y += offsetY;
+      dupe.zOrder = this.objects.length;
+      dupe.arrayGroup = null;
+      dupe.arrayIndex = null;
+      if (dupe.kind === 'control') {
+        dupe.controlDef.Name = this._uniqueName(dupe.controlDef.Name);
+      }
+      this.objects.push(dupe);
+      this._objectsById.set(dupe.id, dupe);
+      this.eventBus.emit('object:added', dupe);
+      pasted.push(dupe);
+    }
+    return pasted;
+  }
+
   bringToFront(ids) {
     if (this.undoManager) this.undoManager.beginBatch();
     const idSet = new Set(ids);
-    const visible = this.getAllObjects(); // sorted by zOrder
+    const visible = this.getAllObjects();
     const rest = visible.filter(o => !idSet.has(o.id));
     const target = visible.filter(o => idSet.has(o.id));
     const reordered = [...rest, ...target];
@@ -509,7 +527,7 @@ export class DataModel {
   sendToBack(ids) {
     if (this.undoManager) this.undoManager.beginBatch();
     const idSet = new Set(ids);
-    const visible = this.getAllObjects(); // sorted by zOrder
+    const visible = this.getAllObjects();
     const target = visible.filter(o => idSet.has(o.id));
     const rest = visible.filter(o => !idSet.has(o.id));
     const reordered = [...target, ...rest];
@@ -578,7 +596,9 @@ export class DataModel {
     this.pins = json.pins || [];
     this.designProperties = json.designProperties || [];
 
-    // Sync ID counter past all existing IDs (pages, objects, arrayGroups)
+    // Rebuild O(1) lookup map from loaded objects
+    this._objectsById = new Map(this.objects.map(o => [o.id, o]));
+
     const allIds = [
       ...this.pages.map(p => p.id),
       ...this.objects.map(o => o.id),
@@ -586,7 +606,6 @@ export class DataModel {
     ];
     syncIdCounter(allIds);
 
-    // Rebuild name counters from ALL objects globally
     this._nameCounters = {};
     for (const obj of this.objects) {
       if (obj.kind === 'control') {
@@ -597,7 +616,6 @@ export class DataModel {
       }
     }
 
-    // Migrate old-format array controls (single object with Count > 1, no arrayGroup)
     const toExpand = [];
     for (const obj of this.objects) {
       if (obj.kind === 'control' && !obj.arrayGroup && obj.controlDef.Count > 1) {
@@ -613,6 +631,7 @@ export class DataModel {
 
   clear() {
     this.objects = [];
+    this._objectsById.clear();
     this._nameCounters = {};
     this.pluginInfo = null;
     this.pins = [];
@@ -630,7 +649,6 @@ export class DataModel {
     this.eventBus.emit('model:loaded', this.toJSON());
   }
 
-  /** Place a Status indicator + label on the canvas when autoGenerateStatus is enabled. */
   _seedStatusControl() {
     if (!this.settings || !this.settings.get('autoGenerateStatus')) return;
 
@@ -641,7 +659,6 @@ export class DataModel {
     const labelW = 40;
     const labelGap = 4;
 
-    // Place below the lowest existing object, or at the default bottom position
     let statusY = page.canvasHeight - grid - ctrlH;
     if (this.objects.length > 0) {
       const lowestBottom = Math.max(...this.objects.map(o => o.y + o.h));
@@ -656,8 +673,7 @@ export class DataModel {
     const ctrlX = labelX + labelW + labelGap;
     const ctrlY = statusY;
 
-    // Status label graphic
-    this.objects.push({
+    const labelObj = {
       id: generateId(),
       kind: 'graphic',
       pageId: page.id,
@@ -671,10 +687,11 @@ export class DataModel {
         HTextAlign: 'Right',
         Color: [255, 255, 255],
       },
-    });
+    };
+    this.objects.push(labelObj);
+    this._objectsById.set(labelObj.id, labelObj);
 
-    // Status indicator control
-    this.objects.push({
+    const ctrlObj = {
       id: generateId(),
       kind: 'control',
       pageId: page.id,
@@ -692,6 +709,8 @@ export class DataModel {
       layoutProps: {
         Style: 'Text',
       },
-    });
+    };
+    this.objects.push(ctrlObj);
+    this._objectsById.set(ctrlObj.id, ctrlObj);
   }
 }

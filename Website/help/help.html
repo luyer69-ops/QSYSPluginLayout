@@ -137,8 +137,9 @@
     <ul>
       <li>Control appearance on the canvas is a wireframe approximation, not a pixel-accurate representation of Q-SYS Designer. Fine-tuning of appearance (colors, fonts, corner radii, etc.) should be verified in Q-SYS Designer.</li>
       <li>Generated Lua code is a starting point and is not guaranteed to compile or run correctly. Always review and test in Q-SYS Designer before deploying.</li>
-      <li>Not all Q-SYS control layout properties are supported. Some properties (e.g., <code>ClassName</code>, <code>WordWrap</code>, <code>IconColor</code>, <code>CustomButtonUp/Down</code>) are not yet available in the editor.</li>
+      <li>Not all Q-SYS control layout properties are supported. <code>ClassName</code> and <code>CustomButtonUp/Down</code> are not yet available in the editor. (<code>WordWrap</code> and <code>IconColor</code> are fully supported.)</li>
       <li>The <code>Media</code> layout style is not supported.</li>
+      <li>Button icons are stored and emitted in the generated Lua, but the canvas shows a placeholder preview rather than the actual icon image.</li>
       <li>Meter and fader visual previews are static representations and do not reflect actual signal levels or control positions.</li>
       <li>The auto-generated Status control is only placed on the canvas when creating a new project. If the Status control is deleted from the canvas, the Lua codegen will still emit it if the setting is enabled, but without a layout entry.</li>
       <li>Knob controls do not support hiding the textbox (<code>ShowTextbox</code>), matching Q-SYS Designer behavior.</li>
