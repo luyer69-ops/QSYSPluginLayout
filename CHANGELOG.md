@@ -53,7 +53,6 @@
 | Dark/light color inversion               | Internal Q-SYS Designer behavior; not publicly documented        |
 | Font rendering differences               | Browser font engine vs Q-SYS native engine                       |
 | Meter/Fader static preview               | Runtime state cannot be simulated in a layout editor             |
-|------------------------------------------|------------------------------------------------------------------|
 
 
 ## 1.0.0
